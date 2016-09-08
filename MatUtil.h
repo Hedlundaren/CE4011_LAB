@@ -30,4 +30,14 @@ bool CmpArray(const int *l, const int *r, const size_t eleNum);
 // const int N - the number of vertices.
 void ST_APSP(int *mat, const size_t N);
 
+
+/// Compute APSP using multi thread. 
+//
+// Parameters:
+// int *mat - the input matrix storing the distance values between vertices. 
+//            mat should have been allocated before callling this function.
+//            The result will be directed stored in mat.
+// const int N - the number of vertices.
+void PT_APSP(int *mat, const size_t N);
+
 #endif

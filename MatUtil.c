@@ -59,10 +59,10 @@ void PT_APSP(int *mat, const size_t N)
 	int root = 0;
 	int buf;
 
-	//This is our temp variable for the row striping
-	int *temp;
 	int dest; //This is our destination for sending the rows we have split up
 	int src;
+
+	int owner;
 
 	//Status returned from MPI on receive
 	MPI_Status status;
@@ -76,11 +76,14 @@ void PT_APSP(int *mat, const size_t N)
 	//It is assummed n*n matrix n/p (n exactly divisible by p)
 	int rowsPerProc = N/numprocs;
 
+	//This is our temp variable for the row striping
+	int *temp = (int*)malloc(sizeof(int)*N*rowsPerProc);
+
 	//Debug printing on root processor only?
 	if(rank == root)
 	{
 		printf("Starting Parallel APSP on Process %d on %s out of %d\n", rank, processor_name, numprocs);
-		printf("Rows of matrix per processor = %d Matrix size = %d ",numprocs,N);
+		printf("Rows of matrix per processor = %d Matrix size = %zu ",numprocs,N);
 	}
 
 
@@ -107,9 +110,11 @@ void PT_APSP(int *mat, const size_t N)
 			int offset = middleVal-rank*rowsPerProc;
 			
 			//For every value in row, copy this
-			for(rowj = 0; rowj < N; rowJ++){
+			for(int rowJ = 0; rowJ < N; rowJ++){
 				//make temp array equal the matrix
-				temp[rowJ]=mat[offset][rowJ];
+
+				//Not sure if this is correct
+				temp[rowJ]= mat[offset + rowJ];
 			}
 		}
 		
@@ -118,10 +123,10 @@ void PT_APSP(int *mat, const size_t N)
 		int tag = 1;
 
 		//Send to rank + 1 in a cycle
-		MPI_Send(&temp,count,MPI_INT,dest,tag,MPI_COMM_WORLD);
+		//MPI_Send(&temp,count,MPI_INT,dest,tag,MPI_COMM_WORLD);
 
 		//Receive from rank -1
-		MPI_Recv(&temp,count,MPI_INT,src,MPI_ANY_TAG,MPI_COMM_WORLD,&status);
+		//MPI_Recv(&temp,count,MPI_INT,src,MPI_ANY_TAG,MPI_COMM_WORLD,&status);
 
 		//or
 		//MPI_Bcast(&buf,1,

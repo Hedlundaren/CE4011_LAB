@@ -5,6 +5,8 @@
 #include <string.h>
 #include <stdbool.h>
 
+void PrintMatrix(int *mat,  int rows, int cols);
+
 /// Generate a random matrix.
 //
 // Parameters:
@@ -39,5 +41,7 @@ void ST_APSP(int *mat, const size_t N);
 //            The result will be directed stored in mat.
 // const int N - the number of vertices.
 void PT_APSP(int *mat, const size_t N);
+
+void PT_APSP2(int *mat, const size_t N);
 
 #endif

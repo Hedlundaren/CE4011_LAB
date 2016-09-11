@@ -1,0 +1,205 @@
+#include "MatUtil.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <mpi.h>
+
+//This is for printing our matrix
+void PrintMatrix(int *mat, int rows, int cols)
+{
+	//Print Random matrix
+	printf("Random Matrix\n\n");
+	for (int rowIndex = 0; rowIndex < rows; rowIndex++) {
+		for (int colIndex = 0; colIndex < cols; colIndex++){
+			printf("%d, ",mat[rowIndex*cols+colIndex]);
+		}
+		printf("\n");
+	}
+	printf("\n");
+}
+
+void GenMatrix(int *mat, const size_t N)
+{
+	for(int i = 0; i < N*N; i ++)
+		mat[i] = rand()%32 - 1;
+	for(int i = 0; i < N; i++)
+		mat[i*N + i] = 0;
+
+}
+
+bool CmpArray(const int *l, const int *r, const size_t eleNum)
+{
+
+	//Modify to show all errors
+	bool val = true;
+	
+	for(int i = 0; i < eleNum; i ++){
+		if(l[i] != r[i])
+		{
+			printf("ERROR: para[%d] = %d, seq[%d] = %d\n", i, l[i], i, r[i]);
+			val = false;
+		}
+	}
+	return val;
+}
+
+
+/*
+	Sequential (Single Thread) APSP on CPU.
+*/
+void ST_APSP(int *mat, const size_t N)
+{
+	for(int k = 0; k < N; k ++){
+
+		for(int i = 0; i < N; i ++){
+
+			for(int j = 0; j < N; j ++)
+			{
+				int i0 = i*N + j;
+				int i1 = i*N + k;
+				int i2 = k*N + j;
+
+				if(mat[i1] != -1 && mat[i2] != -1){ 
+				  int sum =  (mat[i1] + mat[i2]);
+				  if (mat[i0] == -1 || sum < mat[i0])
+						     mat[i0] = sum;
+				}
+			}
+		}
+		PrintMatrix(mat,N,N);
+	}
+}
+
+/*
+	Parallel
+*/
+void PT_APSP(int *result, const size_t N)
+{
+	int numprocs, rank, namelen;
+	char processor_name[MPI_MAX_PROCESSOR_NAME];
+	//Owner of current matrix
+	int owner;
+	//Offset of current matrix
+	int offset;
+
+	//Main proc
+	int root = 0;
+
+	//Status returned from MPI on receive
+	MPI_Status status;
+
+	MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+	MPI_Get_processor_name(processor_name, &namelen);
+
+	//MPI version for debugging?
+	int version, subversion;
+ 	MPI_Get_version (&version,&subversion);
+
+	//Split matrices across processors, row striping move convenient in C
+	//It is assummed n*n matrix n/p (n exactly divisible by p)
+	//eg 4 processor, 8x8 matrices/4 = 2 matrices per processor
+	int matrixPerProc = N/numprocs;
+
+	//Buffer for storing our local matrices N*N*matrixPerProcessor ie. how many k?
+	int *buf = (int*)malloc(sizeof(int)*N*N*matrixPerProc);
+
+	//This is the buffer for our finale result
+	int *sendbuf = (int*)malloc(sizeof(int)*N*N);
+	
+	//Init all to 0
+	memset(sendbuf,0,sizeof(int)*N*N);
+
+	//We need to copy the matrix N/numproc times into the current rank
+	//All processors should have multiple copes of the matrix all will be the same at this stage
+	for(int i=0;i<matrixPerProc;i++){
+
+		//Copy each matrix after each other for the matrixPerProc of matrices to be saved
+		//This should give us array as follows
+		//buf = {{matrix},{matrix}}; //of  N*N*matrixPerProcessor
+		memcpy(buf+(i*N*N),result, sizeof(int)*N*N);
+	}
+
+	if(rank == root){
+		printf("Initial \n");
+		PrintMatrix(result,N,N);
+		printf("\n\n");
+	}
+
+	//For matrix size we need to calculate according to rank and matrix per processor
+	for(int k=0;k<N;k++){
+
+		//The process that owns this row according to split
+		//Eg. We have a correct split
+		//Owner rank, this is the rank that should do the work for the ith iteration
+		owner = k % numprocs; //Divide all k into numprocs
+
+		//This is the offset for the kth iteration
+		offset = k / matrixPerProc; //This gives our offset for K
+
+		//Send to rank + 1 in a cycle
+		//MPI_Send(&temp,count,MPI_INT,dest,tag,MPI_COMM_WORLD);
+
+		//Receive from rank -1
+		//MPI_Recv(&temp,count,MPI_INT,src,MPI_ANY_TAG,MPI_COMM_WORLD,&status);
+
+		//or
+		//MPI_Bcast(&buf,1,
+
+		//If we own this matrix for the kth value then do operations on local matrix
+		if(owner == rank){
+
+			//rowIndex needs to be offset according to matrixPerProc, current rank
+			for (int rowIndex = 0; rowIndex < N; rowIndex++) 
+			{
+				for (int colIndex = 0; colIndex < N; colIndex++)
+				{
+					//This is for accessing the next row in our array (This is not a multidimensional array)
+					//TODO we don't have N here though?? so should be "rowsPerProc"??
+					int i0 = rowIndex+N*N*offset + colIndex; //This is self
+					int i1 = rowIndex+N*N*offset + k; //This is relaxing column
+					int i2 = k+N*N*offset + colIndex; //This is relaxing row
+
+					//If we have a path otherwise we will go to the next colIndex
+					if (buf[i1] != -1 && buf[i2] != -1)
+					{
+						//Min function
+						int sum = (buf[i1] + buf[i2]);
+						//If we have no path at current area or our sum is less
+						if (buf[i0] == -1 || sum < buf[i0]){	
+							buf[i0] = sum;
+						}
+					}
+				}
+			}
+
+		PrintMatrix(buf,N*matrixPerProc,N);
+
+		}
+
+
+	}
+
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	//Reduce to root processor
+	//Row = 0 then offset = 0
+	//Row = 1 then offset = N*N*1
+	//Row = 2 then offset = N*N*2
+
+	//This needs to be a reduce then add the next k to the node to get value
+	MPI_Reduce(buf+(N*N*offset),result,N*N,MPI_INT,MPI_MIN,root,MPI_COMM_WORLD);
+
+	MPI_Barrier(MPI_COMM_WORLD);
+
+	if(rank == root){
+		printf("Finished: \n");
+		PrintMatrix(result,N, N);
+	}
+	
+
+}
+
+void PT_APSP2(int *result, const size_t N)
+{
+
+}

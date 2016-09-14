@@ -111,7 +111,12 @@ void PT_APSP(int *result, const size_t N)
 			}
 		}
 
+		// buf, count, type, source, comm
 		MPI_Bcast(temp,N,MPI_INT,owner,MPI_COMM_WORLD);
+
+		//Copy result into temp array
+		int *temp_result = (int*)malloc(sizeof(int)*N*N);
+		temp_result = result;
 
 		for (int rowIndex = 0; rowIndex < N; rowIndex++) 
 		{
@@ -122,18 +127,21 @@ void PT_APSP(int *result, const size_t N)
 				int ki = k*N + colIndex; //This is relaxing row
 
 				//If we have a path otherwise we will go to the next colIndex
-				if (result[jk] != -1 && result[ki] != -1)
+				if (temp_result[jk] != -1 && temp_result[ki] != -1)
 				{
 					//Min function
-					int sum = (result[jk] + result[ki]);
+					int sum = (temp_result[jk] + temp_result[ki]);
 					//If we have no path at current area or our sum is less
-					if (result[ij] == -1 || sum < result[ij]){	
-						result[ij] = sum;
+					if (temp_result[ij] == -1 || sum < temp_result[ij]){
+						temp_result[ij] = sum;
 					}
 				}
 			}
 		}
 		//Collect from all processors
+		// Sendbuf, recvbuf, count, type, op, comm
+		MPI_Allreduce(temp_result, result, N*N, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+
 		//MPI_Reduce(buf+(N*N*offset),result,N*N,MPI_INT,MPI_MIN,root,MPI_COMM_WORLD);
 		//MPI_Barrier(MPI_COMM_WORLD);
 

@@ -5,13 +5,6 @@
 #include <string.h>
 #include <stdbool.h>
 
-/// Prints out our matrix so we can debug, allows us to choose rows and cols to print
-//
-// Parameters:
-// int *mat - pointer to the generated matrix. mat should have been 
-//            allocated before callling this function.
-// const int rows - number of rows.
-// const int cols - number of cols.
 void PrintMatrix(int *mat,  int rows, int cols);
 
 /// Generate a random matrix.
@@ -39,6 +32,7 @@ bool CmpArray(const int *l, const int *r, const size_t eleNum);
 // const int N - the number of vertices.
 void ST_APSP(int *mat, const size_t N);
 
+
 /// Compute APSP using multi thread. 
 //
 // Parameters:
@@ -47,5 +41,7 @@ void ST_APSP(int *mat, const size_t N);
 //            The result will be directed stored in mat.
 // const int N - the number of vertices.
 void PT_APSP(int *mat, const size_t N);
+
+void PT_APSP2(int *mat, const size_t N);
 
 #endif

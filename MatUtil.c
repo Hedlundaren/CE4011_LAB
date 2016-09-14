@@ -154,7 +154,7 @@ void PT_APSP(int *result, const size_t N)
 	//TODO fix the 1 iteration here
 	for(int k = 0; k < N; k++){
 
-		PrintMatrix(result,N,N);
+		//PrintMatrix(result,N,N);
 
 		//This calculates the owner of this row
 		owner = k / rowsPerProc; //Divide all k into numprocs
@@ -175,12 +175,11 @@ void PT_APSP(int *result, const size_t N)
 
 		//Here is where we bcast from the owner using our temporary row of k
 		//Owner sends, all other processors will receive the part
-		MPI_Bcast(temp,N,MPI_INT,owner,MPI_COMM_WORLD); //SHOULD THIS BE A GROUP INSTEAD??
+		// buf, count, type, source, comm
+		MPI_Bcast(temp,N,MPI_INT,owner,MPI_COMM_WORLD); 
 
 		//For every row we have in our current processor
-		//i
 		for (int rowIndex = 0; rowIndex < rowsPerProc; rowIndex++) {
-			//j
 			for (int colIndex = 0; colIndex < N; colIndex++){
 
 				//Below is equivalent to our min Function
@@ -190,7 +189,8 @@ void PT_APSP(int *result, const size_t N)
 				int kj = colIndex; //This is relaxing column In the temp row, so it is simply the index
 				int ik = rowIndex*N + k; //This is relaxing row, in the same row in the partial mat, offset by k
 
-				printf("self: %d colk: %d rowk: %d\n",part[ij],temp[kj],part[ik]);
+				// SUPERIOR DEBBUGING PRINT
+				// printf("self: %d colk: %d rowk: %d\n",part[ij],temp[kj],part[ik]);
 
 				//If we have a path otherwise we will go to the next colIndex
 				//TODO We should be accessing the tempK rows/row?
@@ -214,51 +214,13 @@ void PT_APSP(int *result, const size_t N)
 			}
 		}
 
-		PrintMatrix(temp,1,N);
-
-		//All changes made are in the local result
-		//We own these rows by this processor
-		//Need to wait for all processes to compute for k
-		//MPI_Barrier(MPI_COMM_WORLD);
-
-		//TODO send the part to all processes!
-		//Implemenation here
-
-
-		//Once we have part in our recvmat
-		//Cycle through the recv mat and fill up parts of the matrix we are missing
-		//for(int b=0;b<N; b++){
-		//	recvmat[b] = result[b+(offset*N)];
-		//}
-
-
-		//if(rank == owner){
-
-		//Reduce results to all processors
-		//TODO we need to do either:
-		//1.one to many broadcast, scatter
-		//2. Many-many all to all
-
 		//Gather once we have calculated our partial matrices update the results variable
 		MPI_Barrier(MPI_COMM_WORLD);
+		// sendbuf, sendcount, type, recvbuf, recvcount, recvtype, target, comm
 		MPI_Gather(part,N*rowsPerProc,MPI_INT,result,N*rowsPerProc,MPI_INT,root,MPI_COMM_WORLD);
-		MPI_Barrier(MPI_COMM_WORLD);
-
-		//MPI_Reduce(result,&result,N*N,MPI_INT,MPI_MIN,MAPI_COMM_WORLD);
-		//PrintMatrix(temp,1,N);
-		//MPI_Bcast(result,N*N,MPI_INT,owner,MPI_COMM_WORLD);
-
-		//	//TODO this is where we then collect the results from other processors
-		//	//and update for the next iteration of k
-		//		
-		//	if(rank == owner){
-		//		//TODO fix our local result data eg copy back/replace
-
-		//	}
-		////}
-
-		//MPI_Reduce(buf+(N*N*offset),result,N*N,MPI_INT,MPI_MIN,root,MPI_COMM_WORLD);
 	}
+
+	PrintMatrix(result, N, N);
 
 	//Return our result to all processors so the return value is the same
 	MPI_Bcast(result,N*N,MPI_INT,root,MPI_COMM_WORLD); //SHOULD THIS BE A GROUP INSTEAD??

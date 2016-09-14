@@ -38,11 +38,11 @@ int main(int argc, char **argv)
 
 	//Compare parallel result with reference from ST_APSP
 	if(CmpArray(result, ref, N*N)){
-		PrintMatrix(result,N,N);
+		//PrintMatrix(result,N,N);
 		printf("Your result is correct.\n");
 	}
 	else{
-		PrintMatrix(result,N,N);
+		//PrintMatrix(result,N,N);
 		printf("Your result is wrong.\n");
 	}
 

@@ -1,5 +1,6 @@
 #include "MatUtil.h"
 #include <stdio.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <mpi.h>
 
@@ -30,16 +31,17 @@ bool CmpArray(const int *l, const int *r, const size_t eleNum)
 {
 
 	//Modify to show all errors
-	bool val = true;
+	//bool val = true;
 	
 	for(int i = 0; i < eleNum; i ++){
 		if(l[i] != r[i])
 		{
 			printf("ERROR: para[%d] = %d, seq[%d] = %d\n", i, l[i], i, r[i]);
-			val = false;
+			//val = false;
+			return false;
 		}
 	}
-	return val;
+	return true;
 }
 
 
@@ -73,15 +75,13 @@ void ST_APSP(int *mat, const size_t N)
 */
 void PT_APSP(int *result, const size_t N)
 {
-	//MPI Vars
+	struct timeval tv1,tv2;
 	int numprocs;
 	int rank;
 	int namelen;
 	char processor_name[MPI_MAX_PROCESSOR_NAME];
 	MPI_Status status; //Status returned from MPI on receive
 	int root = 0; //User defined root process
-	int version; //MPI versions
-	int subversion;
 
 	//Variables for specific processing of problem
 	//Owner of current matrix
@@ -89,14 +89,9 @@ void PT_APSP(int *result, const size_t N)
 	//Offset of current matrix
 	int offset;
 
-	////////////////////////////////////////////////
-	//End of variable section
-	////////////////////////////////////////////////
-
 	MPI_Comm_size(MPI_COMM_WORLD, &numprocs);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Get_processor_name(processor_name, &namelen);
- 	MPI_Get_version (&version,&subversion);
 
 	//Number of rows allocated for a processor to work on for each k
 	//eg 8*8 matrix 8/4=2 (2rows of matrix each to work on for each k)
@@ -113,20 +108,11 @@ void PT_APSP(int *result, const size_t N)
 	Values that have not been set will be zero
 	Or Maybe we can do a merge on the "result" array?
 	*/
+
+	//Partial Matrix equal size per processor
 	int *part = (int*)malloc(sizeof(int)*N*rowsPerProc);
-	memset(part, 0, N*rowsPerProc); //We should zero the array for each k
-
+	//Temp row for k
 	int *temp = (int*)malloc(sizeof(int)*N);
-	memset(temp, 0, N); //We should zero the array for each k
-
-	//This is the matrix we receive after K has completed
-	int *recvmat = (int*)malloc(sizeof(int)*N*N);
-	memset(recvmat, 0, N*N); //We should zero the array for each k
-
-	//////////////////////////////////////////////////////////////////////////////
-	//WE NEED TO SPLIT THE MATRIX AS THE OFFSET BELOW IS ACCESSING A "PART" MATRIX
-	//////////////////////////////////////////////////////////////////////////////
-	//////////////////////////////////////////////////////////////////////////////
 
 	/*
 	1. Distribute the matrix and split via row striping
@@ -148,82 +134,78 @@ void PT_APSP(int *result, const size_t N)
 
 	//Maybe not the most efficient way to do things
 	//http://stackoverflow.com/questions/9269399/sending-blocks-of-2d-array-in-c-using-mpi/
+
+	//TIMING
+	gettimeofday(&tv1,NULL);
+
+	//TODO not as efficient due to every processor having this data in the result anyway
+	//We can access it on the first iteration of k
 	MPI_Scatter(result,rowsPerProc*N,MPI_INT,part,rowsPerProc*N,MPI_INT,root,MPI_COMM_WORLD);
 
 	//For matrix size we need to calculate according to rank and matrix per processor
-	//TODO fix the 1 iteration here
 	for(int k = 0; k < N; k++){
 
-		//PrintMatrix(result,N,N);
-
-		//This calculates the owner of this row
-		owner = k / rowsPerProc; //Divide all k into numprocs
+		owner = k / rowsPerProc;
 
 		//For the owner of the row/rows we need to do an operation from this processor
 		if(rank == owner){
 
 			//This is our offset for our local matrix, size N*rowsPerProc
-			//Firstly we need the split matrix
 			offset = k - owner*rowsPerProc;
 
-			//TODO shouldn't this copy N*rowProc times to get as many rows as we need
-			//This creates our row striping
+			//This is our temp data or the kth row
 			for(int b = 0; b < N; b++){
-				temp[b] = part[offset*N+b]; //Offset returns 0,1,2,3 etc. so we need to multiply this by the size N
+				temp[b] = part[offset*N+b]; 
 			}
 		}
 
-		//Here is where we bcast from the owner using our temporary row of k
-		//Owner sends, all other processors will receive the part
+		//Owner sends of row sends temp to all other processors
 		// buf, count, type, source, comm
 		MPI_Bcast(temp,N,MPI_INT,owner,MPI_COMM_WORLD); 
 
 		//For every row we have in our current processor
 		for (int rowIndex = 0; rowIndex < rowsPerProc; rowIndex++) {
+			//For every row we have in our current processor we need to go through each column N
 			for (int colIndex = 0; colIndex < N; colIndex++){
-
-				//Below is equivalent to our min Function
-				//part[i,j] = min(part[i,j], part[i,k], + temp[j]);
 
 				int ij = rowIndex*N + colIndex; //This is cell we are wanting to replace
 				int kj = colIndex; //This is relaxing column In the temp row, so it is simply the index
 				int ik = rowIndex*N + k; //This is relaxing row, in the same row in the partial mat, offset by k
 
-				// SUPERIOR DEBBUGING PRINT
-				// printf("self: %d colk: %d rowk: %d\n",part[ij],temp[kj],part[ik]);
-
 				//If we have a path otherwise we will go to the next colIndex
-				//TODO We should be accessing the tempK rows/row?
 				if (temp[kj] != -1 && part[ik] != -1){
 
 					//temp[colIndex] is the k in the columns that we need to access
 					//part[i,k] is in the current row
-
 					int sum = (part[ik] + temp[kj]); //Sum of path distance
 
 					//If we have no path in adjacency matrix shown but we have 
 					//a sum from above we can create a new path
-
 					//Or if our sum of the new path is less than the current
 					if (part[ij] == -1 || sum < part[ij]){	
 
-						//Update self with new sum of small path
+						//Update self with smaller path size
 						part[ij] = sum;
 					}
 				}
 			}
 		}
 
-		//Gather once we have calculated our partial matrices update the results variable
-		MPI_Barrier(MPI_COMM_WORLD);
+		//Gather once we have calculated our partial matrices update the results matrix
+		//MPI_Barrier(MPI_COMM_WORLD);
 		// sendbuf, sendcount, type, recvbuf, recvcount, recvtype, target, comm
-		MPI_Gather(part,N*rowsPerProc,MPI_INT,result,N*rowsPerProc,MPI_INT,root,MPI_COMM_WORLD);
 	}
 
-	PrintMatrix(result, N, N);
-
 	//Return our result to all processors so the return value is the same
-	MPI_Bcast(result,N*N,MPI_INT,root,MPI_COMM_WORLD); //SHOULD THIS BE A GROUP INSTEAD??
-	
+	//TODO if this is large then will take a long time sending data
+	//MPI_Bcast(result,N*N,MPI_INT,root,MPI_COMM_WORLD);
+	MPI_Gather(part,N*rowsPerProc,MPI_INT,result,N*rowsPerProc,MPI_INT,root,MPI_COMM_WORLD);
+
+	gettimeofday(&tv2,NULL);
+	printf("Par Time = %ld usecs\n",(tv2.tv_sec - tv1.tv_sec)*1000000+tv2.tv_usec-tv1.tv_usec);
+
+	//Free after malloc
+	free(part);
+	free(temp);
 }
 
